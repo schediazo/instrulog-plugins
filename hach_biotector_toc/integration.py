@@ -25,7 +25,7 @@ class HachBiotectorTOCIntegration:
             logger.warning("HachBiotectorTOC: short packet (%d bytes)", len(raw_bytes))
             return {
                 "status": "error",
-                "message": f"Packet too short: {len(raw_bytes)} bytes (expected ≥19)"
+                "message": f"Packet too short: {len(raw_bytes)} bytes (expected >=19)"
             }
 
         transaction_id, protocol_id, length, unit_id = struct.unpack(

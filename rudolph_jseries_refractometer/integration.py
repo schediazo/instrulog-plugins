@@ -32,7 +32,7 @@ class RudolphJSeriesRefractometerIntegration:
             logger.warning("RudolphJSeries: short packet (%d bytes)", len(raw_bytes))
             return {
                 "status": "error",
-                "message": f"Packet too short: {len(raw_bytes)} bytes (expected ≥23)"
+                "message": f"Packet too short: {len(raw_bytes)} bytes (expected >=23)"
             }
 
         try:

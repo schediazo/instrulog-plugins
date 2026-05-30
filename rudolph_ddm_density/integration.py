@@ -1,18 +1,3 @@
-"""
-InstruLog Plugin: Rudolph DDM 2911 Density Meter
-Connection:       Modbus TCP
-Default Port:     5023
-
-Register Map (FC 0x03):
-  Reg 0–1 — Density       (2×uint16, IEEE 754 float, g/cm³)
-  Reg 2–3 — Concentration (2×uint16, IEEE 754 float, %w/w)
-  Reg 4   — Temperature   (uint16, /100, °C)
-  Reg 5   — Status        (uint16, 0=OK 1=Measuring 2=Error 3=Cal)
-
-Note: Density and Concentration are 32-bit IEEE 754 floats packed
-      across two consecutive big-endian uint16 Modbus registers.
-"""
-
 import asyncio
 import struct
 import logging
@@ -43,7 +28,6 @@ class RudolphDDMDensityIntegration:
         return reader, writer
 
     async def parse_to_json(self, raw_bytes: bytes) -> Dict[str, Any]:
-        # Minimum: 7 MBAP + 1 FC + 1 ByteCount + 12 data bytes = 21
         if len(raw_bytes) < 21:
             logger.warning("RudolphDDM: short packet (%d bytes)", len(raw_bytes))
             return {
@@ -52,7 +36,6 @@ class RudolphDDMDensityIntegration:
             }
 
         try:
-            # MBAP header
             transaction_id, protocol_id, length, unit_id = struct.unpack(
                 ">HHHB", raw_bytes[:7]
             )
@@ -65,27 +48,21 @@ class RudolphDDMDensityIntegration:
                     "message": f"Unexpected function code: {function_code:#04x}"
                 }
 
-            # Registers 0–1: Density (32-bit IEEE 754 float, big-endian word order)
             d_hi, d_lo = struct.unpack(">HH", raw_bytes[9:13])
             density = struct.unpack(">f", struct.pack(">HH", d_hi, d_lo))[0]
 
-            # Registers 2–3: Concentration (32-bit IEEE 754 float)
             c_hi, c_lo = struct.unpack(">HH", raw_bytes[13:17])
             concentration = struct.unpack(">f", struct.pack(">HH", c_hi, c_lo))[0]
 
-            # Register 4: Temperature (uint16, /100)
             temp_raw, = struct.unpack(">H", raw_bytes[17:19])
             temperature = round(temp_raw / 100.0, 2)
 
-            # Register 5: Status
             status_raw, = struct.unpack(">H", raw_bytes[19:21])
             status_str = STATUS_MAP.get(status_raw, f"Unknown({status_raw})")
 
-            # Round floats to realistic precision
             density       = round(float(density), 6)
             concentration = round(float(concentration), 4)
 
-            # Instrument error state
             if status_raw == 2:
                 return {
                     "status": "error",

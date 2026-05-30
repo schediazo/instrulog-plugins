@@ -1,16 +1,3 @@
-"""
-InstruLog Plugin: Hach CL17sc Chlorine Analyzer
-Connection:       Modbus TCP
-Default Port:     5022
-
-Register Map (FC 0x03):
-  Reg 0 — Free Chlorine  (uint16, /100, mg/L)
-  Reg 1 — Total Chlorine (uint16, /100, mg/L)
-  Reg 2 — Temperature    (uint16, /100, °C)
-  Reg 3 — Reagent Level  (uint16, /10,  %)
-  Reg 4 — Alarm Status   (uint16, 0=None 1=LowReagent 2=HighCl 3=LowCl)
-"""
-
 import asyncio
 import struct
 import logging
@@ -18,7 +5,6 @@ from typing import Dict, Any
 
 logger = logging.getLogger(__name__)
 
-# Alarm thresholds for contextual warnings in the reading
 ALARM_MAP = {
     0: "None",
     1: "LowReagent",
@@ -42,7 +28,6 @@ class HachCL17ChlorineIntegration:
         return reader, writer
 
     async def parse_to_json(self, raw_bytes: bytes) -> Dict[str, Any]:
-        # Minimum: 7 MBAP + 1 FC + 1 ByteCount + 10 data bytes = 19
         if len(raw_bytes) < 19:
             logger.warning("HachCL17: short packet (%d bytes)", len(raw_bytes))
             return {
@@ -51,7 +36,6 @@ class HachCL17ChlorineIntegration:
             }
 
         try:
-            # MBAP header
             transaction_id, protocol_id, length, unit_id = struct.unpack(
                 ">HHHB", raw_bytes[:7]
             )
@@ -64,7 +48,6 @@ class HachCL17ChlorineIntegration:
                     "message": f"Unexpected function code: {function_code:#04x}"
                 }
 
-            # Unpack 5 registers
             free_raw, total_raw, temp_raw, reagent_raw, alarm_raw = struct.unpack(
                 ">HHHHH", raw_bytes[9:19]
             )
@@ -80,7 +63,6 @@ class HachCL17ChlorineIntegration:
                 free_cl, total_cl, temp, reagent, alarm
             )
 
-            # Low reagent is not an error but warrants a status flag
             reading_status = "success"
             error_message  = None
             if alarm_raw == 1 and reagent < 10.0:

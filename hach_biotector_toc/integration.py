@@ -28,70 +28,62 @@ class HachBiotectorTOCIntegration:
                 "message": f"Packet too short: {len(raw_bytes)} bytes (expected ≥19)"
             }
 
-        try:
-            transaction_id, protocol_id, length, unit_id = struct.unpack(
-                ">HHHB", raw_bytes[:7]
-            )
-            function_code = raw_bytes[7]
-            byte_count    = raw_bytes[8]
+        transaction_id, protocol_id, length, unit_id = struct.unpack(
+            ">HHHB", raw_bytes[:7]
+        )
+        function_code = raw_bytes[7]
+        byte_count    = raw_bytes[8]
 
-            if function_code != 0x03:
-                return {
-                    "status": "error",
-                    "message": f"Unexpected function code: {function_code:#04x}"
-                }
-
-            toc_raw, tc_raw, tic_raw, tnb_raw, status_raw = struct.unpack(
-                ">HHHHH", raw_bytes[9:19]
-            )
-
-            toc = round(toc_raw / 100.0, 2)
-            tc  = round(tc_raw  / 100.0, 2)
-            tic = round(tic_raw / 100.0, 2)
-            tnb = round(tnb_raw / 100.0, 2)
-
-            status_map = {0: "OK", 1: "Calibrating", 2: "Error"}
-            status_str = status_map.get(status_raw, f"Unknown({status_raw})")
-
-            if status_raw == 2:
-                return {
-                    "status": "error",
-                    "message": f"Instrument reports error (status register={status_raw})"
-                }
-
-            logger.debug(
-                "HachBiotectorTOC: TOC=%.2f TC=%.2f TIC=%.2f TNb=%.2f Status=%s",
-                toc, tc, tic, tnb, status_str
-            )
-
+        if function_code != 0x03:
             return {
-                "status": "success",
-                "instrument_type": self.instrument_type,
-                "transaction_id": transaction_id,
-                "instrument_status": status_str,
-                "metrics": {
-                    "TOC": {
-                        "value": toc,
-                        "unit": "mg/L"
-                    },
-                    "TC": {
-                        "value": tc,
-                        "unit": "mg/L"
-                    },
-                    "TIC": {
-                        "value": tic,
-                        "unit": "mg/L"
-                    },
-                    "TNb": {
-                        "value": tnb,
-                        "unit": "mg/L"
-                    }
-                }
+                "status": "error",
+                "message": f"Unexpected function code: {function_code:#04x}"
             }
 
-        except struct.error as e:
-            logger.error("HachBiotectorTOC: unpack error: %s | raw=%s", e, raw_bytes.hex())
-            return {"status": "error", "message": f"Modbus parse error: {e}"}
-        except Exception as e:
-            logger.error("HachBiotectorTOC: unexpected error: %s", e)
-            return {"status": "error", "message": f"Plugin error: {e}"}
+        toc_raw, tc_raw, tic_raw, tnb_raw, status_raw = struct.unpack(
+            ">HHHHH", raw_bytes[9:19]
+        )
+
+        toc = round(toc_raw / 100.0, 2)
+        tc  = round(tc_raw  / 100.0, 2)
+        tic = round(tic_raw / 100.0, 2)
+        tnb = round(tnb_raw / 100.0, 2)
+
+        status_map = {0: "OK", 1: "Calibrating", 2: "Error"}
+        status_str = status_map.get(status_raw, f"Unknown({status_raw})")
+
+        if status_raw == 2:
+            return {
+                "status": "error",
+                "message": f"Instrument reports error (status register={status_raw})"
+            }
+
+        logger.debug(
+            "HachBiotectorTOC: TOC=%.2f TC=%.2f TIC=%.2f TNb=%.2f Status=%s",
+            toc, tc, tic, tnb, status_str
+        )
+
+        return {
+            "status": "success",
+            "instrument_type": self.instrument_type,
+            "transaction_id": transaction_id,
+            "instrument_status": status_str,
+            "metrics": {
+                "TOC": {
+                    "value": toc,
+                    "unit": "mg/L"
+                },
+                "TC": {
+                    "value": tc,
+                    "unit": "mg/L"
+                },
+                "TIC": {
+                    "value": tic,
+                    "unit": "mg/L"
+                },
+                "TNb": {
+                    "value": tnb,
+                    "unit": "mg/L"
+                }
+            }
+        }

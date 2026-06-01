@@ -67,7 +67,7 @@ class HachCL17ChlorineIntegration:
             error_message  = None
             if alarm_raw == 1 and reagent < 10.0:
                 reading_status = "error"
-                error_message  = f"Reagent critically low: {reagent}% — replace reagent cartridge"
+                error_message  = f"Reagent critically low: {reagent}% replace reagent cartridge"
 
             result: Dict[str, Any] = {
                 "status": reading_status,

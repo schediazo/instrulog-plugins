@@ -82,7 +82,7 @@ class RudolphDDMDensityIntegration:
                 "metrics": {
                     "density": {
                         "value": density,
-                        "unit": "g/cm³"
+                        "unit": "g/cm"
                     },
                     "concentration": {
                         "value": concentration,

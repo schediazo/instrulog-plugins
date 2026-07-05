@@ -68,8 +68,7 @@ class RudolphJSeriesRefractometerIntegration:
             if status_raw == 2:
                 return {
                     "status": "error",
-                    "message": "Bubble detected in sample — reading discarded. "
-                               "Check sample flow and degassing."
+                    "message": "Bubble detected in sample — reading discarded. Check sample flow and degassing."
                 }
 
             if status_raw == 3:

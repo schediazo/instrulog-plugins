@@ -18,6 +18,16 @@ class RudolphJSeriesRefractometerIntegration:
     @property
     def instrument_type(self) -> str:
         return "rudolph_j357_modbus_tcp"
+        
+    def build_request(self, transaction_id: int = 1) -> bytes:
+        """Modbus TCP Read Holding Registers — 8 registers from address 0."""
+        unit_id       = 0x01
+        function_code = 0x03
+        start_address = 0x0000
+        num_registers = 0x0008
+        pdu  = struct.pack(">BBHH", unit_id, function_code, start_address, num_registers)
+        mbap = struct.pack(">HHH",  transaction_id & 0xFFFF, 0x0000, len(pdu) + 1)
+        return mbap + pdu
 
     async def connect(self, config: Dict[str, Any]) -> tuple:
         ip   = config.get("ip",   "127.0.0.1")

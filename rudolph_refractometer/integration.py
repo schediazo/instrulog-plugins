@@ -1,46 +1,50 @@
 """
-Rudolph J-Series Refractometer — TeraTerm Log Reader
-=====================================================
-Reads a single append-only TeraTerm log file containing repeated measurement
-blocks separated by blank lines.  On every poll cycle the plugin finds the
-last complete block and returns all its metrics.
+Rudolph J-Series Refractometer — Serial (RS-232)
+=================================================
+Reads directly from the instrument's RS-232 serial port.
+No TeraTerm or log file needed.
 
-HOST / IP field → directory containing the log file  (e.g. C:\\DR_DATA)
-PORT field      → ignored
+The instrument sends one measurement block per reading cycle, terminated
+by a blank line. Block format (same as TeraTerm output):
 
-Block format:
-    Mon Jul 6, 2026 08:13 AM
+    Mon Jul 6, 2026 08:13 AM\r\n
+    \r\n
+    J47HA Serial No. 17872\r\n
+    \r\n
+    Sample ID:\r\n
+    Result   : 0.08 Brix\r\n
+    N        : 1\r\n
+    Temp     : 22.21 C\r\n
+    T Corr.  : 20.00 C\r\n
+    \r\n
 
-    J47HA Serial No. 17872
-
-    Sample ID:
-    Result   : 0.08 Brix
-    N        : 1
-    Temp     : 22.21 C
-    T Corr.  : 20.00 C
+Config keys (set on the instrument record in InstruLog):
+  ip (Serial Port)  — COM3  or  /dev/ttyUSB0
+  baud_rate         — 9600  (Rudolph default)
+  bytesize          — 8
+  parity            — N
+  stopbits          — 1
+  poll_interval_ms  — controls how often we request / read; 2000 is fine
 
 Metrics returned:
-    result      (Brix)
-    n           (count)
-    temperature (C)
-    tempCorr    (C)
+  result       (Brix)
+  n            (count)
+  temperature  (C)
+  tempCorr     (C)
 """
 
 import asyncio
 import logging
-import os
 import re
 from typing import Any, Dict
 
 logger = logging.getLogger(__name__)
 
-FILENAME = "teraterm.log"
-
-# Field patterns — each captures the numeric value
+# Field patterns — same as before, instrument output hasn't changed
 _PATTERNS = {
-    "result":      re.compile(r"^Result\s*:\s*([-\d.]+)\s*Brix", re.IGNORECASE),
+    "result":      re.compile(r"^Result\s*:\s*([-\d.]+)\s*Brix",  re.IGNORECASE),
     "n":           re.compile(r"^N\s*:\s*(\d+)"),
-    "temperature": re.compile(r"^Temp\s*:\s*([-\d.]+)\s*C", re.IGNORECASE),
+    "temperature": re.compile(r"^Temp\s*:\s*([-\d.]+)\s*C",       re.IGNORECASE),
     "tempCorr":    re.compile(r"^T\s*Corr\.\s*:\s*([-\d.]+)\s*C", re.IGNORECASE),
 }
 
@@ -51,21 +55,81 @@ _UNITS = {
     "tempCorr":    "C",
 }
 
+# Max bytes to buffer before we force a parse attempt
+_MAX_BUF = 4096
 
-def _parse_last_block(filepath: str) -> Dict[str, Any] | None:
-    """
-    Read the file, split into blocks on blank lines, find the last block
-    that contains at least a Result line, and parse all known fields.
-    Returns a metrics dict or None if no valid block found.
-    """
-    with open(filepath, "r", encoding="ascii", errors="ignore") as f:
-        content = f.read()
 
-    # Split on sequences of blank lines
-    raw_blocks = re.split(r"\n\s*\n", content)
+class RudolphJSeriesRefractometerIntegration:
 
-    # Walk backwards to find the last block with a Result line
-    last_metrics = None
+    def __init__(self) -> None:
+        self._reader: asyncio.StreamReader | None = None
+        self._writer: asyncio.StreamWriter | None = None
+        self._buffer: str = ""
+        self._poll_seconds: float = 2.0
+
+    @property
+    def instrument_type(self) -> str:
+        return "rudolph_jseries_brix_serial"
+
+    async def connect(self, config: Dict[str, Any]) -> tuple:
+        import serial_asyncio  # pyserial-asyncio
+
+        port     = config.get("ip", "").strip() 
+        baud     = int(config.get("baud_rate",  9600))
+        bytesize = int(config.get("bytesize",   8))
+        parity   =     config.get("parity",    "N")
+        stopbits = int(config.get("stopbits",   1))
+        self._poll_seconds = config.get("poll_interval_ms", 2000) / 1000.0
+
+        if not port:
+            raise ValueError("Rudolph Refractometer: serial port not configured (set Host/IP to COM3 or /dev/ttyUSB0)")
+
+        logger.info("Rudolph Refractometer: opening %s @ %d baud", port, baud)
+        self._reader, self._writer = await serial_asyncio.open_serial_connection(
+            url=port,
+            baudrate=baud,
+            bytesize=bytesize,
+            parity=parity,
+            stopbits=stopbits,
+        )
+        logger.info("Rudolph Refractometer: serial port open")
+        return self._reader, self._writer
+
+    async def parse_to_json(self, raw_bytes: bytes) -> Dict[str, Any]:
+        """
+        stream_engine calls this with whatever bytes were read in this poll cycle.
+        We accumulate into a buffer and parse the last complete block.
+        """
+        try:
+            self._buffer += raw_bytes.decode("ascii", errors="ignore")
+
+            # Keep buffer bounded
+            if len(self._buffer) > _MAX_BUF:
+                self._buffer = self._buffer[-_MAX_BUF:]
+
+            metrics = _parse_last_block(self._buffer)
+
+            if metrics is None:
+                return {"status": "error", "message": "No complete measurement block yet"}
+
+            return {
+                "status": "success",
+                "instrument_type": self.instrument_type,
+                "metrics": {
+                    key: {"value": val, "unit": _UNITS[key]}
+                    for key, val in metrics.items()
+                },
+            }
+
+        except Exception as e:
+            logger.error("Rudolph Refractometer serial error: %s", e)
+            return {"status": "error", "message": f"Rudolph Refractometer error: {e}"}
+
+
+def _parse_last_block(text: str) -> Dict[str, float] | None:
+    """Split buffered text into blocks on blank lines, parse the last valid one."""
+    raw_blocks = re.split(r"\n\s*\n", text)
+
     for block in reversed(raw_blocks):
         block = block.strip()
         if not block:
@@ -83,85 +147,6 @@ def _parse_last_block(filepath: str) -> Dict[str, Any] | None:
                     break
 
         if "result" in metrics:
-            last_metrics = metrics
-            break
+            return metrics
 
-    return last_metrics
-
-
-class _FileReader:
-    """Fake reader — sleeps poll_interval then returns a dummy byte."""
-    def __init__(self, poll_seconds: float = 2.0) -> None:
-        self._poll_seconds = poll_seconds
-
-    async def read(self, n: int = -1) -> bytes:
-        await asyncio.sleep(self._poll_seconds)
-        return b"\x00"
-
-    def at_eof(self) -> bool:
-        return False
-
-
-class _NullWriter:
-    def close(self) -> None:
-        pass
-
-    async def wait_closed(self) -> None:
-        pass
-
-    def is_closing(self) -> bool:
-        return False
-
-    def write(self, data: bytes) -> None:
-        pass
-
-    async def drain(self) -> None:
-        pass
-
-
-class RudolphJSeriesBrixIntegration:
-
-    def __init__(self) -> None:
-        self._log_file: str = ""
-
-    @property
-    def instrument_type(self) -> str:
-        return "rudolph_jseries_brix_teraterm"
-
-    async def connect(self, config: Dict[str, Any]) -> tuple:
-        directory = config.get("ip", "").strip()
-        poll_seconds = config.get("poll_interval_ms", 2000) / 1000.0
-
-        if not directory:
-            raise ValueError("Rudolph J-Series: HOST/IP must be the log directory path")
-
-        log_file = os.path.join(directory, FILENAME)
-        if not os.path.isfile(log_file):
-            raise FileNotFoundError(f"Rudolph J-Series: file not found: {log_file!r}")
-
-        self._log_file = log_file
-        logger.info("Rudolph J-Series plugin: tailing %r", self._log_file)
-        return _FileReader(poll_seconds), _NullWriter()
-
-    async def parse_to_json(self, raw_bytes: bytes) -> Dict[str, Any]:
-        if not self._log_file:
-            return {"status": "error", "message": "Not connected"}
-
-        try:
-            metrics = await asyncio.to_thread(_parse_last_block, self._log_file)
-
-            if metrics is None:
-                return {"status": "error", "message": "No valid measurement block found in log"}
-
-            return {
-                "status": "success",
-                "instrument_type": self.instrument_type,
-                "metrics": {
-                    key: {"value": val, "unit": _UNITS[key]}
-                    for key, val in metrics.items()
-                },
-            }
-
-        except Exception as e:
-            logger.error("Rudolph J-Series plugin error: %s", e)
-            return {"status": "error", "message": f"Rudolph J-Series plugin error: {e}"}
+    return None

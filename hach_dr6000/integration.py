@@ -224,7 +224,15 @@ class HachDR6000Integration:
         protocol = self._config.get("protocol", "local")
         try:
             if protocol == "local":
-                with open(path, "r", encoding=encoding, errors="ignore") as f:
+                # Auto-detect utf-16 BOM, fall back to configured encoding
+                with open(path, "rb") as fb:
+                    raw = fb.read(4)
+                detected = encoding
+                if raw[:2] in (b'\xff\xfe', b'\xfe\xff'):
+                    detected = "utf-16"
+                elif raw[:3] == b'\xef\xbb\xbf':
+                    detected = "utf-8-sig"
+                with open(path, "r", encoding=detected, errors="ignore") as f:
                     return f.read()
             elif protocol == "ftp":
                 ftp = self._ftp_conn()
@@ -314,7 +322,7 @@ class HachDR6000Integration:
                         headers = row
                     continue
 
-                d = dict(zip(headers, row))
+                d = {k.rstrip(':'): v for k, v in zip(headers, row)}
                 parameter = d.get("Parameter") or d.get("parameter", "")
                 if not parameter or parameter in ("Parameter", "DR6000", "DR3900"):
                     continue

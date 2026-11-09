@@ -1,5 +1,5 @@
 """
-Weight / Balance — Serial (RS-232)
+Inesa Weighing Balance YP5000 — Serial (RS-232)
 ===================================
 Reads directly from a balance or scale via RS-232 serial port.
 No TeraTerm or log file needed.
@@ -35,7 +35,7 @@ _MAX_BUF = 1024
 _FLOAT_RE = re.compile(r"([-+]?\d+(?:\.\d+)?)")
 
 
-class WeightIntegration:
+class InesaWeighingBalanceYP5000Integration:
 
     def __init__(self) -> None:
         self._reader: asyncio.StreamReader | None = None

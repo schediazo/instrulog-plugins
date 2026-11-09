@@ -1,5 +1,5 @@
 """
-Rudolph J-Series Refractometer — Serial (RS-232)
+Rudolph J47-Series Refractometer — Serial (RS-232)
 =================================================
 Reads directly from the instrument's RS-232 serial port.
 No TeraTerm or log file needed.
@@ -59,7 +59,7 @@ _UNITS = {
 _MAX_BUF = 4096
 
 
-class RudolphJSeriesRefractometerIntegration:
+class RudolphJ47SeriesRefractometerIntegration:
 
     def __init__(self) -> None:
         self._reader: asyncio.StreamReader | None = None
